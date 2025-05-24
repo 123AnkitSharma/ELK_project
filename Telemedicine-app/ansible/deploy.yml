@@ -1,0 +1,102 @@
+---
+- name: Deploy Telemedicine App with ELK Stack
+  hosts: local
+  become: false
+  vars_files:
+    - vault/secrets.yml
+  
+  tasks:
+    - name: Create project directory if it doesn't exist
+      file:
+        path: "/tmp/telemedicine-app"
+        state: directory
+        mode: '0755'
+      
+    - name: Clean existing deployments
+      file:
+        path: "/tmp/telemedicine-app"
+        state: absent
+      
+    - name: Create fresh project directory
+      file:
+        path: "/tmp/telemedicine-app"
+        state: directory
+        mode: '0755'
+        
+    # Create ELK configuration directories
+    - name: Create ELK config directories
+      file:
+        path: "/tmp/telemedicine-app/{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - logstash/config
+        - logstash/pipeline
+        - filebeat
+      
+    # Copy ELK configurations
+    - name: Copy Logstash config
+      copy:
+        src: "{{ playbook_dir }}/files/logstash/config/logstash.yml"
+        dest: "/tmp/telemedicine-app/logstash/config/logstash.yml"
+      
+    - name: Copy Logstash pipeline
+      copy:
+        src: "{{ playbook_dir }}/files/logstash/pipeline/logstash.conf"
+        dest: "/tmp/telemedicine-app/logstash/pipeline/logstash.conf"
+      
+    - name: Copy Filebeat config
+      copy:
+        src: "{{ playbook_dir }}/files/filebeat/filebeat.yml"
+        dest: "/tmp/telemedicine-app/filebeat/filebeat.yml"
+      
+    # Continue with existing tasks
+    - name: Copy docker-compose.yml to server
+      copy:
+        src: "{{ playbook_dir }}/../docker-compose.yml"
+        dest: "/tmp/telemedicine-app/docker-compose.yml"
+      
+    - name: Login to DockerHub
+      command: docker login -u {{ docker_hub_username }} -p {{ docker_hub_password }}
+      no_log: true
+      
+    - name: Create .env file
+      copy:
+        dest: "/tmp/telemedicine-app/.env"
+        content: |
+          MONGO_URI={{ mongo_uri }}
+          JWT_SECRET={{ jwt_secret }}
+          NODE_ENV=production
+          CLOUDINARY_CLOUD_NAME={{ cloudinary_cloud_name }}
+          CLOUDINARY_API_KEY={{ cloudinary_api_key }}
+          CLOUDINARY_API_SECRET={{ cloudinary_api_secret }}
+          DEFAULT_ADMIN_EMAIL={{ default_admin_email }}
+          DEFAULT_ADMIN_PASSWORD={{ default_admin_password }}
+          DOCKERHUB_USERNAME={{ docker_hub_username }}
+          VERSION={{ version | default('latest') }}
+        
+    - name: Pull Docker images
+      command: docker pull {{ docker_hub_username }}/{{ item }}:{{ version | default('latest') }}
+      with_items:
+        - telemedicine-backend
+        - telemedicine-frontend
+        
+    - name: Start Docker containers
+      command: docker compose up -d
+      args:
+        chdir: "/tmp/telemedicine-app"
+      environment:
+        DOCKERHUB_USERNAME: "{{ docker_hub_username }}"
+        VERSION: "{{ version | default('latest') }}"
+        
+    - name: Wait for the application to start
+      pause:
+        seconds: 10
+        
+    - name: Verify containers are running
+      command: docker ps
+      register: docker_status
+      
+    - name: Show running containers
+      debug:
+        var: docker_status.stdout_lines

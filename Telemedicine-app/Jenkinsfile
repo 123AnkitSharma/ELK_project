@@ -1,0 +1,100 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('docker-hub-credentials')
+        VERSION = "${env.BUILD_NUMBER}"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: 'https://github.com/123AnkitSharma/spe_project.git']]
+                )
+            }
+        }
+        
+        stage('Build Docker Images') {
+            steps {
+                dir('Telemedicine-app') {
+                    sh 'docker build -t ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-backend:${VERSION} .'
+                    sh 'docker build -t ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-frontend:${VERSION} ./client'
+                    
+                   
+                    sh 'docker tag ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-backend:${VERSION} ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-backend:latest'
+                    sh 'docker tag ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-frontend:${VERSION} ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-frontend:latest'
+                }
+            }
+        }
+        
+        stage('Push to DockerHub') {
+            steps {
+                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+                sh 'docker push ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-backend:${VERSION}'
+                sh 'docker push ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-frontend:${VERSION}'
+                sh 'docker push ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-backend:latest'
+                sh 'docker push ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-frontend:latest'
+            }
+        }
+        
+        stage('Setup Ansible') {
+            steps {
+                script {
+                    sh 'mkdir -p ~/.ansible'
+                    sh 'echo "[defaults]\\nhost_key_checking = False" > ~/.ansible/ansible.cfg'
+                }
+            }
+        }
+        
+        stage('Create Vault Password File') {
+            steps {
+                withCredentials([string(credentialsId: 'ansible-vault-password', variable: 'VAULT_PASSWORD')]) {
+                    sh 'echo "$VAULT_PASSWORD" > Telemedicine-app/ansible/vault/.vault_password.txt'
+                    sh 'chmod 600 Telemedicine-app/ansible/vault/.vault_password.txt'
+                }
+            }
+        }
+        
+        stage('Deploy with Ansible') {
+            steps {
+                dir('Telemedicine-app') {
+                    // Create necessary directories
+                    sh 'mkdir -p ansible/files/logstash/config'
+                    sh 'mkdir -p ansible/files/logstash/pipeline'  
+                    sh 'mkdir -p ansible/files/filebeat'
+                    
+                    // Copy ELK configuration files (create these files in your repo)
+                    sh 'cp ./elk/logstash/config/logstash.yml ansible/files/logstash/config/'
+                    sh 'cp ./elk/logstash/pipeline/logstash.conf ansible/files/logstash/pipeline/'
+                    sh 'cp ./elk/filebeat/filebeat.yml ansible/files/filebeat/'
+                    
+                    // Run the ansible playbook
+                    sh 'ansible-playbook -i ansible/inventory ansible/deploy.yml --vault-password-file ansible/vault/.vault_password.txt -e "version=${VERSION}"'
+                }
+            }
+        }
+        
+        stage('Cleanup') {
+            steps {
+                sh 'rm -f Telemedicine-app/ansible/vault/.vault_password.txt'
+                sh 'docker rmi ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-backend:${VERSION} || true'
+                sh 'docker rmi ${DOCKERHUB_CREDENTIALS_USR}/telemedicine-frontend:${VERSION} || true'
+                sh 'docker logout'
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'Deployment successful!'
+        }
+        failure {
+            echo 'Deployment failed!'
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

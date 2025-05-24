@@ -1,0 +1,34 @@
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Add new navbar styles */
+.navbar-large-text .MuiToolbar-root .MuiTypography-root,
+.navbar-large-text .MuiToolbar-root .MuiButton-root,
+.navbar-large-text .MuiMenuItem-root {
+  font-size: 1.2rem;
+}
+
+/* Make the brand name slightly larger */
+.navbar-large-text .MuiToolbar-root a.MuiTypography-root {
+  font-size: 1.5rem;
+}
+
+/* Ensure dropdown menu items also have larger font */
+.navbar-large-text .MuiMenu-paper .MuiTypography-root {
+  font-size: 1.2rem;
+}
